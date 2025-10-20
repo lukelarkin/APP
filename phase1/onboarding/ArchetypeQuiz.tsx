@@ -1,180 +1,174 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, FlatList } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { colors, radius } from '../theme/tokens';
-import { archetypeProfiles, Archetype } from '../data/archetypes';
+import type { Archetype } from '../data/archetypes';
 
 /**
- * Represents a single answer option in the quiz.  Each option
- * increments the score of its associated archetype by one point
- * when selected.
+ * ArchetypeQuiz
+ *
+ * 5 short, evocative questions (~60–90s). Each option maps directly to
+ * an archetype. The copy intentionally points back to the core job:
+ * "help me when I’m about to fall."
  */
-interface Option {
-  text: string;
-  archetype: Archetype;
-}
 
-/**
- * A question consists of a prompt and a set of answer options.
- */
-interface Question {
-  prompt: string;
-  options: Option[];
-}
+type ArchetypeKey = Archetype;
 
-// Define the quiz content.  Each question is intentionally framed
-// around behavioural responses or values rather than mental health
-// status.  This keeps the quiz light (<90 sec) while still
-// distinguishing archetypes.  You can reorder or adjust questions
-// based on user testing feedback.
-const questions: Question[] = [
+const QUESTIONS: {
+  id: string;
+  question: string;
+  options: { label: string; archetype: ArchetypeKey }[];
+}[] = [
   {
-    prompt: 'When facing a challenge, what’s your instinct?',
+    id: 'q1',
+    question: 'When the pressure mounts, you most want to:',
     options: [
-      { text: 'Charge ahead', archetype: 'Warrior' },
-      { text: 'Seek knowledge', archetype: 'Sage' },
-      { text: 'Reach out to loved ones', archetype: 'Lover' },
-      { text: 'Explore new possibilities', archetype: 'Seeker' },
+      { label: 'Stand firm and do what must be done', archetype: 'Warrior' },
+      { label: 'Pause, reflect, and choose wisely', archetype: 'Sage' },
+      { label: 'Reach for someone who sees you', archetype: 'Lover' },
+      { label: 'Step outside to find a clearer horizon', archetype: 'Seeker' },
     ],
   },
   {
-    prompt: 'Which environment feels most energising?',
+    id: 'q2',
+    question: 'Your friends rely on you for:',
     options: [
-      { text: 'A battlefield or gym', archetype: 'Warrior' },
-      { text: 'A library or workshop', archetype: 'Sage' },
-      { text: 'Home with loved ones', archetype: 'Lover' },
-      { text: 'Outdoors on an adventure', archetype: 'Seeker' },
+      { label: 'Courage when things get hard', archetype: 'Warrior' },
+      { label: 'Calm insight in chaos', archetype: 'Sage' },
+      { label: 'Warmth and steady presence', archetype: 'Lover' },
+      { label: 'Fresh perspective and new energy', archetype: 'Seeker' },
     ],
   },
   {
-    prompt: 'What’s your biggest motivation?',
+    id: 'q3',
+    question: 'When you feel the pull to relapse, you most need:',
     options: [
-      { text: 'Overcoming obstacles', archetype: 'Warrior' },
-      { text: 'Understanding truth', archetype: 'Sage' },
-      { text: 'Building meaningful relationships', archetype: 'Lover' },
-      { text: 'Discovering new horizons', archetype: 'Seeker' },
+      { label: 'A clear plan to protect what matters', archetype: 'Warrior' },
+      { label: 'A reminder of what you already know', archetype: 'Sage' },
+      { label: 'A quick connection to someone who believes in you', archetype: 'Lover' },
+      { label: 'A small adventure to change the story', archetype: 'Seeker' },
     ],
   },
   {
-    prompt: 'Which statement resonates with you?',
+    id: 'q4',
+    question: 'What keeps you moving forward today?',
     options: [
-      { text: 'Strength comes from discipline', archetype: 'Warrior' },
-      { text: 'Wisdom is a lifelong pursuit', archetype: 'Sage' },
-      { text: 'Love is our greatest healer', archetype: 'Lover' },
-      { text: 'Curiosity leads to growth', archetype: 'Seeker' },
+      { label: 'Duty to people and purpose', archetype: 'Warrior' },
+      { label: 'A desire to learn and grow', archetype: 'Sage' },
+      { label: 'Love, belonging and repair', archetype: 'Lover' },
+      { label: 'Curiosity and freedom', archetype: 'Seeker' },
     ],
   },
   {
-    prompt: 'How do you handle stress?',
+    id: 'q5',
+    question: 'If you needed a single phrase in a hard moment, which helps most?',
     options: [
-      { text: 'Work harder', archetype: 'Warrior' },
-      { text: 'Reflect and analyse', archetype: 'Sage' },
-      { text: 'Reach out to friends or family', archetype: 'Lover' },
-      { text: 'Get out and explore', archetype: 'Seeker' },
+      { label: '“Stand—this is worth protecting.”', archetype: 'Warrior' },
+      { label: '“You’ve seen this before — breathe.”', archetype: 'Sage' },
+      { label: '“You are held. You are loved.”', archetype: 'Lover' },
+      { label: '“There’s more ahead—keep exploring.”', archetype: 'Seeker' },
     ],
   },
 ];
 
 export default function ArchetypeQuiz() {
   const router = useRouter();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [scores, setScores] = useState<Record<Archetype, number>>({
-    Warrior: 0,
-    Sage: 0,
-    Lover: 0,
-    Seeker: 0,
-  });
-  const [selected, setSelected] = useState<number | null>(null);
+  const [answers, setAnswers] = useState<Record<string, ArchetypeKey | null>>(
+    QUESTIONS.reduce((acc, q) => ({ ...acc, [q.id]: null }), {})
+  );
+  const [submitting, setSubmitting] = useState(false);
 
-  const currentQuestion = questions[currentIndex];
-
-  const selectOption = (optionIndex: number) => {
-    setSelected(optionIndex);
+  const setAnswer = (qid: string, archetype: ArchetypeKey) => {
+    setAnswers((prev) => ({ ...prev, [qid]: archetype }));
   };
 
-  const handleNext = async () => {
-    if (selected === null) return;
-    const chosenOption = currentQuestion.options[selected];
-    setScores(prev => ({
-      ...prev,
-      [chosenOption.archetype]: prev[chosenOption.archetype] + 1,
-    }));
-    setSelected(null);
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      // Compute winner
-      let winner: Archetype = 'Warrior';
-      let max = -1;
-      (Object.keys(scores) as Archetype[]).forEach((key) => {
-        const total = scores[key] + (key === chosenOption.archetype ? 1 : 0);
-        if (total > max) {
-          max = total;
-          winner = key;
-        }
-      });
-      // Persist archetype in AsyncStorage
-      await AsyncStorage.setItem('archetype', winner);
-      // Navigate to result screen with archetype param
-      router.push({ pathname: '/archetype-result', params: { archetype: winner } });
+  const allAnswered = Object.values(answers).every((a) => a !== null);
+
+  const handleSubmit = async () => {
+    if (!allAnswered || submitting) return;
+    setSubmitting(true);
+
+    // Count votes per archetype
+    const counts: Record<ArchetypeKey, number> = {
+      Warrior: 0,
+      Sage: 0,
+      Lover: 0,
+      Seeker: 0,
+    } as Record<ArchetypeKey, number>;
+
+    Object.values(answers).forEach((a) => {
+      if (a) counts[a] = (counts[a] || 0) + 1;
+    });
+
+    // Pick archetype with highest count; deterministic tie-breaker by fixed priority
+    const priority: ArchetypeKey[] = ['Warrior', 'Sage', 'Lover', 'Seeker'];
+    let best: ArchetypeKey = priority[0];
+    let bestScore = -1;
+    priority.forEach((k) => {
+      const s = counts[k] || 0;
+      if (s > bestScore) {
+        best = k;
+        bestScore = s;
+      }
+    });
+
+    try {
+      // Persist archetype + onboarding flag for routing
+      await AsyncStorage.setItem('archetype', best);
+      await AsyncStorage.setItem('onboardingSeen', 'true');
+      await AsyncStorage.setItem('archetype_quiz_answers', JSON.stringify(answers));
+      // Navigate to the sacred result page
+      router.push('/onboarding/result');
+    } catch (err) {
+      console.warn('Failed to save archetype', err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleBack = () => {
-    if (currentIndex === 0) return;
-    setCurrentIndex(currentIndex - 1);
-    setSelected(null);
+  const renderOption = (qid: string, option: { label: string; archetype: ArchetypeKey }) => {
+    const selected = answers[qid] === option.archetype;
+    return (
+      <TouchableOpacity
+        key={option.label}
+        style={[styles.option, selected && styles.optionSelected]}
+        onPress={() => setAnswer(qid, option.archetype)}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+      >
+        <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{option.label}</Text>
+      </TouchableOpacity>
+    );
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.prompt}>{currentQuestion.prompt}</Text>
-        {currentQuestion.options.map((option, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.option,
-              selected === index && styles.optionSelected,
-            ]}
-            onPress={() => selectOption(index)}
-          >
-            <Text
-              style={[
-                styles.optionText,
-                selected === index && styles.optionTextSelected,
-              ]}
-            >
-              {option.text}
-            </Text>
-          </TouchableOpacity>
-        ))}
-        <View style={styles.navigation}>
-          {currentIndex > 0 && (
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Text style={styles.backButtonText}>Back</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.nextButton, !selected && styles.nextButtonDisabled]}
-            onPress={handleNext}
-            disabled={selected === null}
-          >
-            <Text style={styles.nextButtonText}>
-              {currentIndex === questions.length - 1 ? 'Reveal' : 'Next'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.progress}>
-          {currentIndex + 1} / {questions.length}
-        </Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Find your archetype</Text>
+        <Text style={styles.subtitle}>5 short questions — about 60–90 seconds. This helps us support you when you’re about to fall.</Text>
+      </View>
+
+      <FlatList
+        data={QUESTIONS}
+        keyExtractor={(q) => q.id}
+        renderItem={({ item }) => (
+          <View style={styles.card}>
+            <Text style={styles.question}>{item.question}</Text>
+            <View style={{ marginTop: 12 }}>{item.options.map((o) => renderOption(item.id, o))}</View>
+          </View>
+        )}
+        contentContainerStyle={{ paddingBottom: 32 }}
+      />
+
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.submitButton, (!allAnswered || submitting) && styles.submitDisabled]}
+          onPress={handleSubmit}
+          disabled={!allAnswered || submitting}
+        >
+          <Text style={styles.submitText}>{submitting ? 'Saving…' : 'Reveal my archetype'}</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -184,83 +178,65 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  header: {
+    paddingVertical: 12,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  subtitle: {
+    marginTop: 6,
+    color: colors.muted,
   },
   card: {
-    width: '100%',
+    marginTop: 12,
+    padding: 14,
     backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: 24,
+    borderRadius: radius.md,
   },
-  prompt: {
-    fontSize: 20,
-    fontWeight: '600',
+  question: {
     color: colors.text,
-    marginBottom: 24,
+    fontSize: 16,
+    fontWeight: '600',
   },
   option: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: radius.md,
+    marginTop: 8,
+    padding: 10,
+    borderRadius: radius.sm,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: colors.card,
-    backgroundColor: colors.card,
-    marginBottom: 12,
+    borderColor: colors.cardBorder || '#2b2b2b20',
   },
   optionSelected: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
+    backgroundColor: colors.accent2 + '22',
+    borderColor: colors.accent2,
   },
   optionText: {
     color: colors.text,
-    fontSize: 16,
   },
   optionTextSelected: {
+    color: colors.accent2,
+    fontWeight: '600',
+  },
+  footer: {
+    paddingVertical: 12,
+  },
+  submitButton: {
+    backgroundColor: colors.accent,
+    padding: 14,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  submitDisabled: {
+    opacity: 0.5,
+  },
+  submitText: {
     color: colors.bg,
-    fontWeight: '600',
-  },
-  navigation: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 24,
-  },
-  backButton: {
-    flex: 1,
-    borderColor: colors.accent,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  backButtonText: {
-    color: colors.accent,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  nextButton: {
-    flex: 1,
-    backgroundColor: colors.accent2,
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  nextButtonDisabled: {
-    backgroundColor: colors.card,
-    opacity: 0.4,
-  },
-  nextButtonText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  progress: {
-    marginTop: 16,
-    textAlign: 'center',
-    color: colors.sub,
-    fontSize: 14,
+    fontWeight: '700',
   },
 });
