@@ -6,18 +6,15 @@ import {
   StyleSheet,
   SafeAreaView,
   FlatList,
+  ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { colors, radius } from '../theme/tokens';
 import { archetypeProfiles, Archetype } from '../data/archetypes';
+import EmotionPicker, { Emotion } from './EmotionPicker';
+import { interventions } from '../data/interventions';
 
-/**
- * Parts available for selection during the daily Internal Family Systems
- * (IFS) check‑in.  These cover common protective and wounded parts
- * identified in trauma‑informed therapy.  We use the archetype’s
- * recommended ordering to surface the most relevant parts first.
- */
 const ALL_PARTS = [
   'Inner Critic',
   'Rebel',
@@ -30,27 +27,37 @@ const ALL_PARTS = [
 ] as const;
 type Part = typeof ALL_PARTS[number];
 
+type MoodEntry = {
+  emotion: Emotion;
+  intensity: number;
+  valence: number;
+  arousal: number;
+  part?: Part | null;
+  archetype?: Archetype | null;
+  createdAt: string; // ISO
+};
+
 export default function IFSCheckIn() {
   const router = useRouter();
   const [archetype, setArchetype] = useState<Archetype>('Warrior');
   const [orderedParts, setOrderedParts] = useState<Part[]>([]);
-  const [selected, setSelected] = useState<Part | null>(null);
+  const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [streak, setStreak] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+
+  // Emotion state for this check-in
+  const [emotionSelection, setEmotionSelection] = useState<{ emotion: Emotion; intensity: number; valence: number; arousal: number } | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        // Retrieve the user’s archetype to prioritise parts
         const savedArchetype = await AsyncStorage.getItem('archetype');
         if (savedArchetype && (savedArchetype as Archetype in archetypeProfiles)) {
           setArchetype(savedArchetype as Archetype);
         }
-        // Compose ordered parts: archetype priority first, then the rest
         const priority = archetypeProfiles[(savedArchetype as Archetype) || 'Warrior'].ifsSequence;
         const remaining = ALL_PARTS.filter(p => !priority.includes(p));
         setOrderedParts([...priority.filter(p => ALL_PARTS.includes(p as Part)) as Part[], ...remaining]);
-        // Load current streak
         const stored = await AsyncStorage.getItem('ifsStreak');
         setStreak(stored ? parseInt(stored, 10) : 0);
       } finally {
@@ -59,28 +66,63 @@ export default function IFSCheckIn() {
     })();
   }, []);
 
-  const handleSubmit = async () => {
-    if (!selected) return;
-    // Increment streak by one and persist
-    const newStreak = streak + 1;
-    setStreak(newStreak);
-    await AsyncStorage.setItem('ifsStreak', newStreak.toString());
-    // Reset selection for the next day
-    setSelected(null);
-    // Optionally navigate back to home or show a success message
-    router.back();
+  const handleEmotionSelect = (choice: { emotion: Emotion; intensity: number; valence: number; arousal: number }) => {
+    setEmotionSelection(choice);
   };
 
-  const renderItem = ({ item }: { item: Part }) => (
-    <TouchableOpacity
-      style={[styles.partItem, selected === item && styles.partItemSelected]}
-      onPress={() => setSelected(item)}
-    >
-      <Text style={[styles.partText, selected === item && styles.partTextSelected]}>
-        {item}
-      </Text>
-    </TouchableOpacity>
-  );
+  const handleSubmit = async () => {
+    if (!emotionSelection) return;
+
+    const entry: MoodEntry = {
+      emotion: emotionSelection.emotion,
+      intensity: emotionSelection.intensity,
+      valence: emotionSelection.valence,
+      arousal: emotionSelection.arousal,
+      part: selectedPart || null,
+      archetype: archetype || null,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Persist mood history
+    const raw = (await AsyncStorage.getItem('moodHistory')) || '[]';
+    const history: MoodEntry[] = JSON.parse(raw);
+    history.unshift(entry); // newest first
+    await AsyncStorage.setItem('moodHistory', JSON.stringify(history.slice(0, 100))); // cap at 100
+
+    // Update emotional streak (simple daily increment if last entry not today)
+    try {
+      const lastRaw = history[1]; // history[0] is current entry
+      const lastDate = lastRaw ? new Date(lastRaw.createdAt).toDateString() : null;
+      const today = new Date().toDateString();
+      if (lastDate !== today) {
+        const newStreak = streak + 1;
+        setStreak(newStreak);
+        await AsyncStorage.setItem('ifsStreak', newStreak.toString());
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Award a small token for checking in
+    const tokensRaw = await AsyncStorage.getItem('ubuntuTokens');
+    const tokens = tokensRaw ? parseInt(tokensRaw, 10) : 0;
+    await AsyncStorage.setItem('ubuntuTokens', String(tokens + 1));
+
+    // Optionally surface a mood-aware intervention
+    const moodKey = entry.emotion;
+    const suggested = (interventions as any).moodMapping?.[moodKey] || [];
+    if (suggested.length > 0) {
+      // For now we simply navigate to the resets screen if a reset is recommended first
+      if (suggested.includes('physiologicSigh') || suggested.includes('nostril') || suggested.includes('eft')) {
+        router.push('/resets');
+      }
+    }
+
+    // Reset selection for next time and navigate back
+    setEmotionSelection(null);
+    setSelectedPart(null);
+    router.back();
+  };
 
   if (loading) {
     return (
@@ -90,121 +132,75 @@ export default function IFSCheckIn() {
     );
   }
 
-  // Compute a simple self‑meter ratio.  We cap at 7 for display to
-  // encourage a weekly practice but do not limit underlying streak.
+  // Meter ratio for self-led visualization still uses streak
   const meterRatio = Math.min(streak % 7, 7) / 7;
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.heading}>Daily IFS Check‑In</Text>
-        <Text style={styles.subHeading}>
-          Which part of you feels most active right now?
-        </Text>
-        <FlatList
-          data={orderedParts}
-          keyExtractor={(item) => item}
-          renderItem={renderItem}
-          extraData={selected}
-          style={{ marginVertical: 16 }}
-        />
-        <View style={styles.meterContainer}>
-          <View style={[styles.meterFill, { flex: meterRatio }]} />
-          <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <View style={styles.card}>
+          <Text style={styles.heading}>Emotional Check‑In</Text>
+          <Text style={styles.subHeading}>
+            Name what you feel — a quick scan helps us support you before a slip.
+          </Text>
+
+          <EmotionPicker onSelect={handleEmotionSelect} initial={null} />
+
+          {emotionSelection && (
+            <>
+              <Text style={styles.selectedText}>You picked: {emotionSelection.emotion} (intensity {emotionSelection.intensity})</Text>
+
+              <Text style={[styles.subHeading, { marginTop: 12 }]}>Which part feels most active?</Text>
+              <FlatList
+                data={orderedParts}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.partItem, selectedPart === item && styles.partItemSelected]}
+                    onPress={() => setSelectedPart(item)}
+                  >
+                    <Text style={[styles.partText, selectedPart === item && styles.partTextSelected]}>{item}</Text>
+                  </TouchableOpacity>
+                )}
+                extraData={selectedPart}
+                style={{ marginVertical: 12 }}
+              />
+
+              <View style={styles.meterContainer}>
+                <View style={[styles.meterFill, { flex: meterRatio }]} />
+                <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
+              </View>
+              <Text style={styles.streakText}>Self‑led days: {streak}</Text>
+
+              <TouchableOpacity
+                style={[styles.submitButton, !emotionSelection && styles.submitButtonDisabled]}
+                onPress={handleSubmit}
+              >
+                <Text style={styles.submitButtonText}>Log Check‑In</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
-        <Text style={styles.streakText}>Self‑led days: {streak}</Text>
-        <TouchableOpacity
-          style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={!selected}
-        >
-          <Text style={styles.submitButtonText}>Log Check‑In</Text>
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  card: {
-    width: '100%',
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: 24,
-  },
-  heading: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.accent,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  subHeading: {
-    fontSize: 16,
-    color: colors.text,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  partItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.card,
-    backgroundColor: colors.card,
-    marginBottom: 8,
-  },
-  partItemSelected: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  partText: {
-    fontSize: 16,
-    color: colors.text,
-  },
-  partTextSelected: {
-    color: colors.bg,
-    fontWeight: '600',
-  },
-  meterContainer: {
-    flexDirection: 'row',
-    height: 10,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  meterFill: {
-    backgroundColor: colors.accent2,
-  },
-  meterEmpty: {
-    backgroundColor: colors.card,
-  },
-  streakText: {
-    textAlign: 'center',
-    fontSize: 14,
-    color: colors.sub,
-    marginBottom: 16,
-  },
-  submitButton: {
-    backgroundColor: colors.accent2,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  submitButtonDisabled: {
-    backgroundColor: colors.card,
-    opacity: 0.5,
-  },
-  submitButtonText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
+  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: 16 },
+  heading: { fontSize: 20, fontWeight: '700', color: colors.text },
+  subHeading: { color: colors.muted, marginTop: 6 },
+  selectedText: { marginTop: 8, color: colors.text },
+  partItem: { padding: 10, borderRadius: radius.sm, backgroundColor: colors.card, marginTop: 8 },
+  partItemSelected: { backgroundColor: colors.accent2 + '22' },
+  partText: { color: colors.text },
+  partTextSelected: { color: colors.accent2, fontWeight: '700' },
+  meterContainer: { flexDirection: 'row', height: 8, borderRadius: 12, overflow: 'hidden', marginTop: 12 },
+  meterFill: { backgroundColor: colors.accent },
+  meterEmpty: { backgroundColor: colors.cardAlt || '#2b2b2b20' },
+  streakText: { marginTop: 8, color: colors.muted },
+  submitButton: { marginTop: 12, backgroundColor: colors.accent, padding: 12, borderRadius: radius.md, alignItems: 'center' },
+  submitButtonDisabled: { opacity: 0.5 },
+  submitButtonText: { color: colors.bg, fontWeight: '700' },
 });
