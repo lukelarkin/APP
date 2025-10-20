@@ -11,11 +11,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { colors, radius } from '../theme/tokens';
 import { archetypeProfiles, Archetype } from '../data/archetypes';
+import { useIFS, InterventionSuggestion } from '../context/IFSContext';
+import EmotionPicker from './EmotionPicker';
+import { Emotion, Quadrant, Intensity } from './moodTypes';
 
 /**
  * Parts available for selection during the daily Internal Family Systems
  * (IFS) check‑in.  These cover common protective and wounded parts
- * identified in trauma‑informed therapy.  We use the archetype’s
+ * identified in trauma‑informed therapy.  We use the archetype's
  * recommended ordering to surface the most relevant parts first.
  */
 const ALL_PARTS = [
@@ -32,16 +35,25 @@ type Part = typeof ALL_PARTS[number];
 
 export default function IFSCheckIn() {
   const router = useRouter();
+  const { selfLedStreak, recordMood, recordPartWork } = useIFS();
   const [archetype, setArchetype] = useState<Archetype>('Warrior');
   const [orderedParts, setOrderedParts] = useState<Part[]>([]);
   const [selected, setSelected] = useState<Part | null>(null);
-  const [streak, setStreak] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  
+  // Mood logging state
+  const [step, setStep] = useState<'mood' | 'part'>('mood');
+  const [moodData, setMoodData] = useState<{
+    emotion: Emotion;
+    quadrant: Quadrant;
+    intensity: Intensity;
+  } | null>(null);
+  const [interventionSuggestions, setInterventionSuggestions] = useState<InterventionSuggestion[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        // Retrieve the user’s archetype to prioritise parts
+        // Retrieve the user's archetype to prioritise parts
         const savedArchetype = await AsyncStorage.getItem('archetype');
         if (savedArchetype && (savedArchetype as Archetype in archetypeProfiles)) {
           setArchetype(savedArchetype as Archetype);
@@ -50,25 +62,60 @@ export default function IFSCheckIn() {
         const priority = archetypeProfiles[(savedArchetype as Archetype) || 'Warrior'].ifsSequence;
         const remaining = ALL_PARTS.filter(p => !priority.includes(p));
         setOrderedParts([...priority.filter(p => ALL_PARTS.includes(p as Part)) as Part[], ...remaining]);
-        // Load current streak
-        const stored = await AsyncStorage.getItem('ifsStreak');
-        setStreak(stored ? parseInt(stored, 10) : 0);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
+  const handleMoodSelect = async (emotion: Emotion, quadrant: Quadrant, intensity: Intensity) => {
+    // Store mood data
+    setMoodData({ emotion, quadrant, intensity });
+    
+    // Record mood and get intervention suggestions
+    const suggestions = await recordMood({
+      emotion,
+      quadrant,
+      intensity,
+      timestamp: new Date().toISOString(),
+    });
+    
+    setInterventionSuggestions(suggestions);
+    
+    // Move to part selection
+    setStep('part');
+  };
+
   const handleSubmit = async () => {
     if (!selected) return;
-    // Increment streak by one and persist
-    const newStreak = streak + 1;
-    setStreak(newStreak);
-    await AsyncStorage.setItem('ifsStreak', newStreak.toString());
+    
+    // Record part work (will update streak if both mood and part done today)
+    await recordPartWork();
+    
     // Reset selection for the next day
     setSelected(null);
-    // Optionally navigate back to home or show a success message
-    router.back();
+    
+    // Route based on intervention suggestions
+    if (interventionSuggestions.length > 0) {
+      const topIntervention = interventionSuggestions[0];
+      
+      // Navigate to appropriate intervention screen
+      switch (topIntervention.type) {
+        case 'physiologicReset':
+          router.push('/resets');
+          break;
+        case 'lovedOneLetter':
+        case 'wildernessJournal':
+        case 'gratitudeRitual':
+          // For now, just go back - these would route to specific intervention screens
+          router.back();
+          break;
+        default:
+          router.back();
+      }
+    } else {
+      router.back();
+    }
   };
 
   const renderItem = ({ item }: { item: Part }) => (
@@ -92,8 +139,22 @@ export default function IFSCheckIn() {
 
   // Compute a simple self‑meter ratio.  We cap at 7 for display to
   // encourage a weekly practice but do not limit underlying streak.
-  const meterRatio = Math.min(streak % 7, 7) / 7;
+  const meterRatio = Math.min(selfLedStreak % 7, 7) / 7;
 
+  // Step 1: Mood Selection
+  if (step === 'mood') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.card}>
+          <EmotionPicker
+            onSelect={handleMoodSelect}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Step 2: Part Selection
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
@@ -112,7 +173,7 @@ export default function IFSCheckIn() {
           <View style={[styles.meterFill, { flex: meterRatio }]} />
           <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
         </View>
-        <Text style={styles.streakText}>Self‑led days: {streak}</Text>
+        <Text style={styles.streakText}>Self‑led days: {selfLedStreak}</Text>
         <TouchableOpacity
           style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
           onPress={handleSubmit}
@@ -138,6 +199,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: 24,
+    maxHeight: '90%',
   },
   heading: {
     fontSize: 22,
