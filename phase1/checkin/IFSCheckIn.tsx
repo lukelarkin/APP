@@ -11,6 +11,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { colors, radius } from '../theme/tokens';
 import { archetypeProfiles, Archetype } from '../data/archetypes';
+import EmotionPicker, { EmotionSelection } from './EmotionPicker';
+import { interventions } from '../data/interventions';
 
 /**
  * Parts available for selection during the daily Internal Family Systems
@@ -30,6 +32,15 @@ const ALL_PARTS = [
 ] as const;
 type Part = typeof ALL_PARTS[number];
 
+interface MoodEntry {
+  timestamp: string;
+  emotion: string;
+  intensity: number;
+  valence: string;
+  arousal: string;
+  part?: Part;
+}
+
 export default function IFSCheckIn() {
   const router = useRouter();
   const [archetype, setArchetype] = useState<Archetype>('Warrior');
@@ -37,6 +48,8 @@ export default function IFSCheckIn() {
   const [selected, setSelected] = useState<Part | null>(null);
   const [streak, setStreak] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [showEmotionPicker, setShowEmotionPicker] = useState(true);
+  const [emotionSelection, setEmotionSelection] = useState<EmotionSelection | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -59,16 +72,79 @@ export default function IFSCheckIn() {
     })();
   }, []);
 
+  const handleEmotionSelected = (selection: EmotionSelection) => {
+    setEmotionSelection(selection);
+    setShowEmotionPicker(false);
+  };
+
   const handleSubmit = async () => {
-    if (!selected) return;
-    // Increment streak by one and persist
-    const newStreak = streak + 1;
-    setStreak(newStreak);
-    await AsyncStorage.setItem('ifsStreak', newStreak.toString());
-    // Reset selection for the next day
-    setSelected(null);
-    // Optionally navigate back to home or show a success message
-    router.back();
+    if (!selected || !emotionSelection) return;
+
+    try {
+      // Create mood entry with timestamp
+      const entry: MoodEntry = {
+        timestamp: new Date().toISOString(),
+        emotion: emotionSelection.emotion,
+        intensity: emotionSelection.intensity,
+        valence: emotionSelection.valence,
+        arousal: emotionSelection.arousal,
+        part: selected,
+      };
+
+      // Load existing mood history
+      const storedHistory = await AsyncStorage.getItem('moodHistory');
+      const history: MoodEntry[] = storedHistory ? JSON.parse(storedHistory) : [];
+
+      // Add new entry at the beginning (newest-first)
+      history.unshift(entry);
+
+      // Cap at 100 entries
+      const cappedHistory = history.slice(0, 100);
+
+      // Persist mood history
+      await AsyncStorage.setItem('moodHistory', JSON.stringify(cappedHistory));
+
+      // Check if last entry was today for streak tracking
+      const today = new Date().toDateString();
+      let newStreak = streak;
+      
+      if (history.length > 1) {
+        const lastEntry = history[1]; // Second entry (first is current)
+        const lastEntryDate = new Date(lastEntry.timestamp).toDateString();
+        if (lastEntryDate !== today) {
+          newStreak = streak + 1;
+        }
+      } else {
+        // First entry ever
+        newStreak = 1;
+      }
+
+      setStreak(newStreak);
+      await AsyncStorage.setItem('ifsStreak', newStreak.toString());
+
+      // Award +1 ubuntu token
+      const storedTokens = await AsyncStorage.getItem('ubuntuTokens');
+      const tokens = storedTokens ? parseInt(storedTokens, 10) : 0;
+      await AsyncStorage.setItem('ubuntuTokens', (tokens + 1).toString());
+
+      // Surface mood-aware interventions
+      const moodInterventions = interventions.moodMapping[emotionSelection.emotion] || [];
+      
+      // If first intervention is 'reset', navigate to resets
+      if (moodInterventions.length > 0 && moodInterventions[0] === 'reset') {
+        router.push('/resets' as any);
+      } else {
+        router.back();
+      }
+
+      // Reset state for next check-in
+      setSelected(null);
+      setEmotionSelection(null);
+      setShowEmotionPicker(true);
+    } catch (error) {
+      console.error('Error saving check-in:', error);
+      router.back();
+    }
   };
 
   const renderItem = ({ item }: { item: Part }) => (
@@ -97,29 +173,35 @@ export default function IFSCheckIn() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
-        <Text style={styles.heading}>Daily IFS Check‑In</Text>
-        <Text style={styles.subHeading}>
-          Which part of you feels most active right now?
-        </Text>
-        <FlatList
-          data={orderedParts}
-          keyExtractor={(item) => item}
-          renderItem={renderItem}
-          extraData={selected}
-          style={{ marginVertical: 16 }}
-        />
-        <View style={styles.meterContainer}>
-          <View style={[styles.meterFill, { flex: meterRatio }]} />
-          <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
-        </View>
-        <Text style={styles.streakText}>Self‑led days: {streak}</Text>
-        <TouchableOpacity
-          style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={!selected}
-        >
-          <Text style={styles.submitButtonText}>Log Check‑In</Text>
-        </TouchableOpacity>
+        {showEmotionPicker ? (
+          <EmotionPicker onSelect={handleEmotionSelected} />
+        ) : (
+          <>
+            <Text style={styles.heading}>Daily IFS Check‑In</Text>
+            <Text style={styles.subHeading}>
+              Which part of you feels most active right now?
+            </Text>
+            <FlatList
+              data={orderedParts}
+              keyExtractor={(item) => item}
+              renderItem={renderItem}
+              extraData={selected}
+              style={{ marginVertical: 16 }}
+            />
+            <View style={styles.meterContainer}>
+              <View style={[styles.meterFill, { flex: meterRatio }]} />
+              <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
+            </View>
+            <Text style={styles.streakText}>Self‑led days: {streak}</Text>
+            <TouchableOpacity
+              style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={!selected}
+            >
+              <Text style={styles.submitButtonText}>Log Check‑In</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );

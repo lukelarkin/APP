@@ -14,10 +14,13 @@ export interface LovedOneLetter {
   body: string;
 }
 
+export type InterventionType = 'lovedOneLetter' | 'wildernessJournal' | 'gratitudeRitual' | 'reset';
+
 export interface Interventions {
   lovedOneLetters: Record<Archetype, LovedOneLetter[]>;
   wildernessJournal: Record<Archetype, string[]>;
   gratitudeRitual: Record<Archetype, string[]>;
+  moodMapping: Record<string, InterventionType[]>;
 }
 
 export const interventions: Interventions = {
@@ -86,5 +89,22 @@ export const interventions: Interventions = {
       'Spend five minutes outdoors noticing beauty around you. Offer thanks for each thing you notice.',
       'Draw or write about a place that inspires awe and gratitude. How can you carry that feeling forward?',
     ],
+  },
+  moodMapping: {
+    // Positive, high arousal emotions → gratitude or journaling
+    Happy: ['gratitudeRitual', 'wildernessJournal'],
+    Excited: ['gratitudeRitual', 'wildernessJournal'],
+    // Positive, low arousal emotions → gratitude
+    Calm: ['gratitudeRitual', 'lovedOneLetter'],
+    Content: ['gratitudeRitual', 'wildernessJournal'],
+    // Negative, high arousal emotions → reset first, then journaling
+    Anxious: ['reset', 'wildernessJournal', 'lovedOneLetter'],
+    Angry: ['reset', 'wildernessJournal'],
+    Stressed: ['reset', 'wildernessJournal', 'lovedOneLetter'],
+    // Negative, low arousal emotions → loved one letter, then journaling
+    Sad: ['lovedOneLetter', 'wildernessJournal', 'gratitudeRitual'],
+    Tired: ['lovedOneLetter', 'gratitudeRitual'],
+    // Neutral → default to archetype priority
+    Neutral: ['wildernessJournal', 'gratitudeRitual', 'lovedOneLetter'],
   },
 };
