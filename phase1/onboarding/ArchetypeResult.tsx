@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Pull in theme tokens and archetype definitions.  The dark theme
 // colours defined in `theme/tokens.ts` ensure consistent styling with
@@ -25,8 +26,10 @@ export default function ArchetypeResult() {
 
   // Navigate into the home tab.  Replace rather than push so that
   // users cannot navigate back to the result screen via the back
-  // button and accidentally re-run the quiz.
-  const handleContinue = () => {
+  // button and accidentally re-run the quiz.  Mark onboarding as seen
+  // so first-time users don't see the quiz again.
+  const handleContinue = async () => {
+    await AsyncStorage.setItem('onboardingSeen', 'true');
     router.replace('/(tabs)/home');
   };
 
