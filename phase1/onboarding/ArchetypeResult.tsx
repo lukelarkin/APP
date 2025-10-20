@@ -1,45 +1,91 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-
-// Pull in theme tokens and archetype definitions.  The dark theme
-// colours defined in `theme/tokens.ts` ensure consistent styling with
-// the rest of the app.  Archetype profiles contain the tone,
-// description and other metadata for each result.
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import { colors, radius } from '../theme/tokens';
-import { archetypeProfiles, Archetype } from '../data/archetypes';
+import { archetypeProfiles, type Archetype } from '../data/archetypes';
 
 /**
- * A simple result page shown after the user completes the archetype
- * quiz.  It receives the `archetype` parameter via the router and
- * displays the corresponding profile information.  Users can tap
- * through to begin using the app from here.
+ * ArchetypeResult
+ *
+ * Sacred, personalised reveal. Reads archetype from storage, shows
+ * title + description and offers two actions:
+ * - Begin your journey (replace onboarding and go to home)
+ * - See Athena’s tone (preview)
+ *
+ * If archetypeProfiles is extended with color/image, we use them here.
  */
+
 export default function ArchetypeResult() {
   const router = useRouter();
-  // Extract the archetype name from the route parameters.  If
-  // undefined, default to 'Warrior' to avoid crashing.
-  const { archetype } = useLocalSearchParams<{ archetype?: string }>();
-  const key: Archetype = (archetype as Archetype) || 'Warrior';
-  const profile = archetypeProfiles[key];
+  const [archetype, setArchetype] = useState<Archetype | null>(null);
 
-  // Navigate into the home tab.  Replace rather than push so that
-  // users cannot navigate back to the result screen via the back
-  // button and accidentally re-run the quiz.
-  const handleContinue = () => {
-    router.replace('/(tabs)/home');
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem('archetype');
+        if (stored && (stored in archetypeProfiles)) {
+          setArchetype(stored as Archetype);
+        }
+      } catch (err) {
+        console.warn('Failed to load archetype', err);
+      }
+    })();
+  }, []);
+
+  if (!archetype) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={{ color: colors.text }}>Loading…</Text>
+      </SafeAreaView>
+    );
+  }
+
+  const profile = archetypeProfiles[archetype];
+
+  const handleBegin = async () => {
+    // Ensure onboardingSeen persisted (defensive)
+    try {
+      await AsyncStorage.setItem('onboardingSeen', 'true');
+    } catch (err) {
+      /* swallow */
+    }
+    // Replace onboarding in flow and go to home / main screen
+    router.replace('/');
+  };
+
+  const handlePreviewTone = () => {
+    router.push('/onboarding/athenaPreview');
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Your Archetype</Text>
-          <Text style={styles.archetype}>{profile.title}</Text>
+    <SafeAreaView style={[styles.container]}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={[styles.card, profile.color ? { borderColor: profile.color } : null]}>
+          {profile.image ? (
+            <Image source={profile.image} style={styles.heroImage} resizeMode="cover" accessibilityLabel={`${profile.title} illustration`} />
+          ) : (
+            <Text style={styles.celebrate}>✨</Text>
+          )}
+
+          <Text style={styles.title}>You are the {profile.title}</Text>
           <Text style={styles.description}>{profile.description}</Text>
-          <TouchableOpacity style={styles.button} onPress={handleContinue}>
-            <Text style={styles.buttonText}>Begin Your Journey</Text>
-          </TouchableOpacity>
+
+          <View style={styles.ritual}>
+            <Text style={styles.ritualText}>
+              This archetype is a companion — not a cage. When the pull feels strongest, return here for a quiet reminder of who you’re becoming. If you want a single help line right now, pin your reminder below.
+            </Text>
+          </View>
+
+          <View style={styles.actions}>
+            <TouchableOpacity onPress={handleBegin} style={[styles.primaryButton, profile.color ? { backgroundColor: profile.color } : null]}>
+              <Text style={styles.primaryText}>Begin your journey</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handlePreviewTone} style={styles.secondaryButton}>
+              <Text style={styles.secondaryText}>See Athena’s tone</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -51,49 +97,69 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  scroll: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+  content: {
+    padding: 20,
+    paddingBottom: 48,
   },
   card: {
-    width: '100%',
     backgroundColor: colors.card,
     borderRadius: radius.lg,
-    padding: 24,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  heroImage: {
+    width: '100%',
+    height: 140,
+    borderRadius: radius.sm,
+    marginBottom: 12,
+  },
+  celebrate: {
+    fontSize: 32,
+    marginBottom: 8,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.accent,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  archetype: {
-    fontSize: 32,
+    fontSize: 22,
     fontWeight: '800',
-    color: colors.accent2,
+    color: colors.text,
+    marginBottom: 8,
+  },
+  description: {
+    color: colors.muted,
     textAlign: 'center',
     marginBottom: 16,
   },
-  description: {
-    fontSize: 16,
-    color: colors.text,
-    marginBottom: 24,
-    lineHeight: 22,
-    textAlign: 'left',
+  ritual: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: radius.sm,
+    backgroundColor: colors.cardAlt || '#ffffff06',
   },
-  button: {
-    marginTop: 12,
-    backgroundColor: colors.accent2,
-    paddingVertical: 14,
+  ritualText: {
+    color: colors.text,
+    textAlign: 'center',
+  },
+  actions: {
+    marginTop: 18,
+    width: '100%',
+  },
+  primaryButton: {
+    backgroundColor: colors.accent,
+    padding: 14,
     borderRadius: radius.md,
     alignItems: 'center',
   },
-  buttonText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
+  primaryText: {
+    color: colors.bg,
+    fontWeight: '700',
+  },
+  secondaryButton: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  secondaryText: {
+    color: colors.accent2,
+    fontWeight: '700',
   },
 });
