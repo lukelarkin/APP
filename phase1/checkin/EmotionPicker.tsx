@@ -12,7 +12,6 @@ import {
   Quadrant,
   Intensity,
   computeQuadrant,
-  EMOTION_QUADRANT_MAP,
 } from './moodTypes';
 
 /**
@@ -80,12 +79,12 @@ interface EmotionPickerProps {
    * Returns the emotion, its quadrant, and intensity.
    */
   onSelect: (emotion: Emotion, quadrant: Quadrant, intensity: Intensity) => void;
-  
+
   /**
    * Optional currently selected emotion
    */
   selectedEmotion?: Emotion;
-  
+
   /**
    * Optional currently selected intensity
    */
@@ -122,17 +121,23 @@ export default function EmotionPicker({
     }
   };
 
-  // Capitalize first letter of emotion for display
   const formatEmotion = (e: string) => e.charAt(0).toUpperCase() + e.slice(1);
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Text style={styles.heading}>How are you feeling?</Text>
-      <Text style={styles.subHeading}>Choose the emotion that best describes your state</Text>
+      <Text style={styles.subHeading}>
+        Choose the emotion that best describes your state
+      </Text>
 
       {EMOTION_GROUPS.map((group) => (
         <View key={group.quadrant} style={styles.quadrantGroup}>
-          <View style={[styles.quadrantHeader, { backgroundColor: group.color + '20' }]}>
+          <View
+            style={[
+              styles.quadrantHeader,
+              { backgroundColor: group.color + '20' },
+            ]}
+          >
             <Text style={[styles.quadrantLabel, { color: group.color }]}>
               {group.label}
             </Text>
@@ -143,7 +148,10 @@ export default function EmotionPicker({
                 key={e}
                 style={[
                   styles.emotionButton,
-                  emotion === e && { backgroundColor: group.color, borderColor: group.color },
+                  emotion === e && {
+                    backgroundColor: group.color,
+                    borderColor: group.color,
+                  },
                 ]}
                 onPress={() => handleEmotionPress(e)}
               >
@@ -163,9 +171,7 @@ export default function EmotionPicker({
 
       {emotion && (
         <View style={styles.intensitySection}>
-          <Text style={styles.intensityHeading}>
-            How intense is this feeling?
-          </Text>
+          <Text style={styles.intensityHeading}>How intense is this feeling?</Text>
           <View style={styles.intensityButtons}>
             {([1, 2, 3, 4, 5] as Intensity[]).map((level) => (
               <TouchableOpacity
@@ -239,7 +245,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.card,
     backgroundColor: colors.card,
-    marginRight: 8,
     marginBottom: 8,
   },
   emotionText: {

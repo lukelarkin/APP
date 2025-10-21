@@ -3,7 +3,7 @@
  * interventions are surfaced by Athena during cravings or as part of
  * daily practice.  Use them to provide emotionally resonant
  * substitutions—letters from loved ones, journaling prompts inspired
- * by Marcus Aurelius, and Ubuntu‑style gratitude ceremonies—to
+ * by Marcus Aurelius, and Ubuntu-style gratitude ceremonies—to
  * interrupt the ritual → compulsion → shame cycle.
  */
 
@@ -16,6 +16,12 @@ export interface LovedOneLetter {
   subject: string;
   body: string;
 }
+
+export type InterventionType =
+  | 'lovedOneLetter'
+  | 'wildernessJournal'
+  | 'gratitudeRitual'
+  | 'physiologicReset';
 
 export interface Interventions {
   lovedOneLetters: Record<Archetype, LovedOneLetter[]>;
@@ -83,7 +89,7 @@ export const interventions: Interventions = {
     ],
     Lover: [
       'Light a candle and speak aloud three people you are thankful for, picturing their faces and emotions.',
-      'Write or send a heartfelt thank‑you to someone who has shown you unconditional love.',
+      'Write or send a heartfelt thank-you to someone who has shown you unconditional love.',
     ],
     Seeker: [
       'Spend five minutes outdoors noticing beauty around you. Offer thanks for each thing you notice.',
@@ -104,7 +110,7 @@ export const EMOTION_INTERVENTION_MAP: Partial<Record<Emotion, string[]>> = {
   angry: ['physiologicReset', 'wildernessJournal', 'gratitudeRitual'],
   frustrated: ['wildernessJournal', 'physiologicReset', 'gratitudeRitual'],
   irritated: ['physiologicReset', 'wildernessJournal', 'gratitudeRitual'],
-  
+
   // LOW_UNPLEASANT emotions benefit from connection/compassion
   sad: ['lovedOneLetter', 'gratitudeRitual', 'wildernessJournal'],
   lonely: ['lovedOneLetter', 'gratitudeRitual', 'wildernessJournal'],
@@ -112,12 +118,12 @@ export const EMOTION_INTERVENTION_MAP: Partial<Record<Emotion, string[]>> = {
   hopeless: ['lovedOneLetter', 'wildernessJournal', 'gratitudeRitual'],
   disconnected: ['lovedOneLetter', 'gratitudeRitual', 'wildernessJournal'],
   tired: ['physiologicReset', 'gratitudeRitual', 'wildernessJournal'],
-  
+
   // HIGH_PLEASANT emotions - celebrate and channel
   excited: ['gratitudeRitual', 'wildernessJournal', 'lovedOneLetter'],
   energized: ['gratitudeRitual', 'wildernessJournal', 'physiologicReset'],
   joyful: ['gratitudeRitual', 'lovedOneLetter', 'wildernessJournal'],
-  
+
   // LOW_PLEASANT emotions - maintain and deepen
   calm: ['gratitudeRitual', 'wildernessJournal', 'lovedOneLetter'],
   peaceful: ['gratitudeRitual', 'wildernessJournal', 'lovedOneLetter'],
@@ -125,8 +131,7 @@ export const EMOTION_INTERVENTION_MAP: Partial<Record<Emotion, string[]>> = {
 };
 
 /**
- * Maps quadrants to intervention preferences.
- * Used as fallback when specific emotion mapping is not available.
+ * Quadrant fallback mapping
  */
 export const QUADRANT_INTERVENTION_MAP: Record<Quadrant, string[]> = {
   [Quadrant.HIGH_UNPLEASANT]: ['physiologicReset', 'wildernessJournal', 'gratitudeRitual'],
@@ -136,85 +141,65 @@ export const QUADRANT_INTERVENTION_MAP: Record<Quadrant, string[]> = {
 };
 
 /**
- * Suggests interventions based on mood entry and user archetype.
- * Combines emotion-specific, quadrant-specific, and archetype preferences,
- * considering intensity to prioritize more intense interventions for higher intensity moods.
- * 
- * @param entry - The mood log entry
- * @param archetype - The user's archetype
- * @returns Array of intervention suggestions sorted by priority
+ * Suggests interventions based on mood entry and archetype.
  */
 export function suggestInterventionsForMood(
   entry: MoodLog,
   archetype: Archetype
 ): InterventionSuggestion[] {
   const profile = archetypeProfiles[archetype];
-  
-  // Get emotion-specific preferences (if available)
   const emotionPrefs = EMOTION_INTERVENTION_MAP[entry.emotion] || [];
-  
-  // Get quadrant preferences as fallback
   const quadrantPrefs = QUADRANT_INTERVENTION_MAP[entry.quadrant];
-  
-  // Get archetype substitution priority
   const archetypePrefs = profile.substitutionPriority;
-  
-  // Score each intervention type
+
   const scores = new Map<string, number>();
-  
-  // Emotion-specific gets highest weight
-  emotionPrefs.forEach((type, index) => {
-    scores.set(type, (scores.get(type) || 0) + (10 - index * 2));
+
+  emotionPrefs.forEach((type, i) => {
+    scores.set(type, (scores.get(type) || 0) + (10 - i * 2));
   });
-  
-  // Quadrant preferences get medium weight
-  quadrantPrefs.forEach((type, index) => {
-    scores.set(type, (scores.get(type) || 0) + (6 - index * 1.5));
+  quadrantPrefs.forEach((type, i) => {
+    scores.set(type, (scores.get(type) || 0) + (6 - i * 1.5));
   });
-  
-  // Archetype preferences get base weight
-  archetypePrefs.forEach((type, index) => {
-    scores.set(type, (scores.get(type) || 0) + (4 - index));
+  archetypePrefs.forEach((type, i) => {
+    scores.set(type, (scores.get(type) || 0) + (4 - i));
   });
-  
-  // Intensity modifier: for high intensity (4-5), boost physiologicReset
+
   if (entry.intensity >= 4) {
     scores.set('physiologicReset', (scores.get('physiologicReset') || 0) + 3);
   }
-  
-  // Convert to intervention suggestions
-  const suggestions: InterventionSuggestion[] = Array.from(scores.entries())
-    .map(([type, score]) => ({
+
+  return Array.from(scores.entries())
+    .map(([type, priority]) => ({
       type: type as InterventionSuggestion['type'],
-      priority: score,
+      priority,
       reason: getInterventionReason(type, entry, archetype),
     }))
     .sort((a, b) => b.priority - a.priority);
-  
-  return suggestions;
 }
 
 /**
- * Generates a human-readable reason for why an intervention was suggested.
+ * Returns a short explanation for why an intervention was chosen.
  */
 function getInterventionReason(
   type: string,
   entry: MoodLog,
   archetype: Archetype
 ): string {
-  const emotionDisplay = entry.emotion.charAt(0).toUpperCase() + entry.emotion.slice(1);
-  const intensityDesc = entry.intensity >= 4 ? 'intense' : entry.intensity >= 3 ? 'moderate' : 'mild';
-  
+  const emotionLabel =
+    entry.emotion.charAt(0).toUpperCase() + entry.emotion.slice(1);
+  const intensity =
+    entry.intensity >= 4 ? 'intense' : entry.intensity >= 3 ? 'moderate' : 'mild';
+
   switch (type) {
     case 'physiologicReset':
-      return `A breathing exercise can help regulate ${intensityDesc} ${entry.emotion} feelings.`;
+      return `A breathing exercise can help regulate ${intensity} ${entry.emotion} feelings.`;
     case 'lovedOneLetter':
       return `A letter from someone who cares can provide comfort when feeling ${entry.emotion}.`;
     case 'wildernessJournal':
-      return `Journaling can help process ${emotionDisplay} emotions and gain clarity.`;
+      return `Journaling can help process ${emotionLabel} emotions and gain clarity.`;
     case 'gratitudeRitual':
       return `Gratitude practice can shift perspective when experiencing ${entry.emotion}.`;
     default:
-      return `This intervention aligns with your ${archetype} archetype.`;
+      return `This aligns with your ${archetype} archetype’s preferred substitutions.`;
   }
 }

@@ -16,10 +16,8 @@ import EmotionPicker from './EmotionPicker';
 import { Emotion, Quadrant, Intensity } from './moodTypes';
 
 /**
- * Parts available for selection during the daily Internal Family Systems
- * (IFS) check‑in.  These cover common protective and wounded parts
- * identified in trauma‑informed therapy.  We use the archetype's
- * recommended ordering to surface the most relevant parts first.
+ * Parts available for selection during the daily Internal Family Systems (IFS) check-in.
+ * Each archetype defines its own recommended ordering to surface the most relevant parts first.
  */
 const ALL_PARTS = [
   'Inner Critic',
@@ -36,78 +34,80 @@ type Part = typeof ALL_PARTS[number];
 export default function IFSCheckIn() {
   const router = useRouter();
   const { selfLedStreak, recordMood, recordPartWork } = useIFS();
+
   const [archetype, setArchetype] = useState<Archetype>('Warrior');
   const [orderedParts, setOrderedParts] = useState<Part[]>([]);
   const [selected, setSelected] = useState<Part | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Mood logging state
+
+  // Flow state
   const [step, setStep] = useState<'mood' | 'part'>('mood');
   const [moodData, setMoodData] = useState<{
     emotion: Emotion;
     quadrant: Quadrant;
     intensity: Intensity;
   } | null>(null);
-  const [interventionSuggestions, setInterventionSuggestions] = useState<InterventionSuggestion[]>([]);
+  const [interventionSuggestions, setInterventionSuggestions] = useState<
+    InterventionSuggestion[]
+  >([]);
 
   useEffect(() => {
     (async () => {
       try {
-        // Retrieve the user's archetype to prioritise parts
         const savedArchetype = await AsyncStorage.getItem('archetype');
         if (savedArchetype && (savedArchetype as Archetype in archetypeProfiles)) {
           setArchetype(savedArchetype as Archetype);
         }
-        // Compose ordered parts: archetype priority first, then the rest
-        const priority = archetypeProfiles[(savedArchetype as Archetype) || 'Warrior'].ifsSequence;
-        const remaining = ALL_PARTS.filter(p => !priority.includes(p));
-        setOrderedParts([...priority.filter(p => ALL_PARTS.includes(p as Part)) as Part[], ...remaining]);
+
+        const priority =
+          archetypeProfiles[(savedArchetype as Archetype) || 'Warrior'].ifsSequence;
+        const remaining = ALL_PARTS.filter((p) => !priority.includes(p));
+        setOrderedParts([
+          ...(priority.filter((p) => ALL_PARTS.includes(p as Part)) as Part[]),
+          ...remaining,
+        ]);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const handleMoodSelect = async (emotion: Emotion, quadrant: Quadrant, intensity: Intensity) => {
-    // Store mood data
+  const handleMoodSelect = async (
+    emotion: Emotion,
+    quadrant: Quadrant,
+    intensity: Intensity
+  ) => {
     setMoodData({ emotion, quadrant, intensity });
-    
-    // Record mood and get intervention suggestions
+
+    // Record mood in context and fetch AI-guided intervention suggestions
     const suggestions = await recordMood({
       emotion,
       quadrant,
       intensity,
       timestamp: new Date().toISOString(),
     });
-    
+
     setInterventionSuggestions(suggestions);
-    
-    // Move to part selection
     setStep('part');
   };
 
   const handleSubmit = async () => {
     if (!selected) return;
-    
-    // Record part work (will update streak if both mood and part done today)
+
     await recordPartWork();
-    
-    // Reset selection for the next day
+
     setSelected(null);
-    
-    // Route based on intervention suggestions
+
+    // Route user based on intervention type
     if (interventionSuggestions.length > 0) {
-      const topIntervention = interventionSuggestions[0];
-      
-      // Navigate to appropriate intervention screen
-      switch (topIntervention.type) {
+      const top = interventionSuggestions[0];
+      switch (top.type) {
         case 'physiologicReset':
           router.push('/resets');
           break;
         case 'lovedOneLetter':
         case 'wildernessJournal':
         case 'gratitudeRitual':
-          // For now, just go back - these would route to specific intervention screens
           router.back();
           break;
         default:
@@ -123,7 +123,9 @@ export default function IFSCheckIn() {
       style={[styles.partItem, selected === item && styles.partItemSelected]}
       onPress={() => setSelected(item)}
     >
-      <Text style={[styles.partText, selected === item && styles.partTextSelected]}>
+      <Text
+        style={[styles.partText, selected === item && styles.partTextSelected]}
+      >
         {item}
       </Text>
     </TouchableOpacity>
@@ -137,8 +139,7 @@ export default function IFSCheckIn() {
     );
   }
 
-  // Compute a simple self‑meter ratio.  We cap at 7 for display to
-  // encourage a weekly practice but do not limit underlying streak.
+  // Compute simple weekly self-meter
   const meterRatio = Math.min(selfLedStreak % 7, 7) / 7;
 
   // Step 1: Mood Selection
@@ -146,9 +147,7 @@ export default function IFSCheckIn() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.card}>
-          <EmotionPicker
-            onSelect={handleMoodSelect}
-          />
+          <EmotionPicker onSelect={handleMoodSelect} />
         </View>
       </SafeAreaView>
     );
@@ -158,10 +157,11 @@ export default function IFSCheckIn() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
-        <Text style={styles.heading}>Daily IFS Check‑In</Text>
+        <Text style={styles.heading}>Daily IFS Check-In</Text>
         <Text style={styles.subHeading}>
           Which part of you feels most active right now?
         </Text>
+
         <FlatList
           data={orderedParts}
           keyExtractor={(item) => item}
@@ -169,17 +169,20 @@ export default function IFSCheckIn() {
           extraData={selected}
           style={{ marginVertical: 16 }}
         />
+
         <View style={styles.meterContainer}>
           <View style={[styles.meterFill, { flex: meterRatio }]} />
           <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
         </View>
-        <Text style={styles.streakText}>Self‑led days: {selfLedStreak}</Text>
+
+        <Text style={styles.streakText}>Self-led days: {selfLedStreak}</Text>
+
         <TouchableOpacity
           style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
           onPress={handleSubmit}
           disabled={!selected}
         >
-          <Text style={styles.submitButtonText}>Log Check‑In</Text>
+          <Text style={styles.submitButtonText}>Log Check-In</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -270,3 +273,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
