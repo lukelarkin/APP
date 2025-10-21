@@ -11,14 +11,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { colors, radius } from '../theme/tokens';
 import { archetypeProfiles, Archetype } from '../data/archetypes';
-import EmotionPicker, { EmotionSelection } from './EmotionPicker';
-import { interventions } from '../data/interventions';
+import { useIFS, InterventionSuggestion } from '../context/IFSContext';
+import EmotionPicker from './EmotionPicker';
+import { Emotion, Quadrant, Intensity } from './moodTypes';
 
 /**
- * Parts available for selection during the daily Internal Family Systems
- * (IFS) check‑in.  These cover common protective and wounded parts
- * identified in trauma‑informed therapy.  We use the archetype’s
- * recommended ordering to surface the most relevant parts first.
+ * Parts available for selection during the daily Internal Family Systems (IFS) check-in.
+ * Each archetype defines its own recommended ordering to surface the most relevant parts first.
  */
 const ALL_PARTS = [
   'Inner Critic',
@@ -32,117 +31,89 @@ const ALL_PARTS = [
 ] as const;
 type Part = typeof ALL_PARTS[number];
 
-interface MoodEntry {
-  timestamp: string;
-  emotion: string;
-  intensity: number;
-  valence: string;
-  arousal: string;
-  part?: Part;
-}
-
 export default function IFSCheckIn() {
   const router = useRouter();
+  const { selfLedStreak, recordMood, recordPartWork } = useIFS();
+
   const [archetype, setArchetype] = useState<Archetype>('Warrior');
   const [orderedParts, setOrderedParts] = useState<Part[]>([]);
   const [selected, setSelected] = useState<Part | null>(null);
-  const [streak, setStreak] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [showEmotionPicker, setShowEmotionPicker] = useState(true);
-  const [emotionSelection, setEmotionSelection] = useState<EmotionSelection | null>(null);
+
+  // Flow state
+  const [step, setStep] = useState<'mood' | 'part'>('mood');
+  const [moodData, setMoodData] = useState<{
+    emotion: Emotion;
+    quadrant: Quadrant;
+    intensity: Intensity;
+  } | null>(null);
+  const [interventionSuggestions, setInterventionSuggestions] = useState<
+    InterventionSuggestion[]
+  >([]);
 
   useEffect(() => {
     (async () => {
       try {
-        // Retrieve the user’s archetype to prioritise parts
         const savedArchetype = await AsyncStorage.getItem('archetype');
         if (savedArchetype && (savedArchetype as Archetype in archetypeProfiles)) {
           setArchetype(savedArchetype as Archetype);
         }
-        // Compose ordered parts: archetype priority first, then the rest
-        const priority = archetypeProfiles[(savedArchetype as Archetype) || 'Warrior'].ifsSequence;
-        const remaining = ALL_PARTS.filter(p => !priority.includes(p));
-        setOrderedParts([...priority.filter(p => ALL_PARTS.includes(p as Part)) as Part[], ...remaining]);
-        // Load current streak
-        const stored = await AsyncStorage.getItem('ifsStreak');
-        setStreak(stored ? parseInt(stored, 10) : 0);
+
+        const priority =
+          archetypeProfiles[(savedArchetype as Archetype) || 'Warrior'].ifsSequence;
+        const remaining = ALL_PARTS.filter((p) => !priority.includes(p));
+        setOrderedParts([
+          ...(priority.filter((p) => ALL_PARTS.includes(p as Part)) as Part[]),
+          ...remaining,
+        ]);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const handleEmotionSelected = (selection: EmotionSelection) => {
-    setEmotionSelection(selection);
-    setShowEmotionPicker(false);
+  const handleMoodSelect = async (
+    emotion: Emotion,
+    quadrant: Quadrant,
+    intensity: Intensity
+  ) => {
+    setMoodData({ emotion, quadrant, intensity });
+
+    // Record mood in context and fetch AI-guided intervention suggestions
+    const suggestions = await recordMood({
+      emotion,
+      quadrant,
+      intensity,
+      timestamp: new Date().toISOString(),
+    });
+
+    setInterventionSuggestions(suggestions);
+    setStep('part');
   };
 
   const handleSubmit = async () => {
-    if (!selected || !emotionSelection) return;
+    if (!selected) return;
 
-    try {
-      // Create mood entry with timestamp
-      const entry: MoodEntry = {
-        timestamp: new Date().toISOString(),
-        emotion: emotionSelection.emotion,
-        intensity: emotionSelection.intensity,
-        valence: emotionSelection.valence,
-        arousal: emotionSelection.arousal,
-        part: selected,
-      };
+    await recordPartWork();
 
-      // Load existing mood history
-      const storedHistory = await AsyncStorage.getItem('moodHistory');
-      const history: MoodEntry[] = storedHistory ? JSON.parse(storedHistory) : [];
+    setSelected(null);
 
-      // Add new entry at the beginning (newest-first)
-      history.unshift(entry);
-
-      // Cap at 100 entries
-      const cappedHistory = history.slice(0, 100);
-
-      // Persist mood history
-      await AsyncStorage.setItem('moodHistory', JSON.stringify(cappedHistory));
-
-      // Check if last entry was today for streak tracking
-      const today = new Date().toDateString();
-      let newStreak = streak;
-      
-      if (history.length > 1) {
-        const lastEntry = history[1]; // Second entry (first is current)
-        const lastEntryDate = new Date(lastEntry.timestamp).toDateString();
-        if (lastEntryDate !== today) {
-          newStreak = streak + 1;
-        }
-      } else {
-        // First entry ever
-        newStreak = 1;
+    // Route user based on intervention type
+    if (interventionSuggestions.length > 0) {
+      const top = interventionSuggestions[0];
+      switch (top.type) {
+        case 'physiologicReset':
+          router.push('/resets');
+          break;
+        case 'lovedOneLetter':
+        case 'wildernessJournal':
+        case 'gratitudeRitual':
+          router.back();
+          break;
+        default:
+          router.back();
       }
-
-      setStreak(newStreak);
-      await AsyncStorage.setItem('ifsStreak', newStreak.toString());
-
-      // Award +1 ubuntu token
-      const storedTokens = await AsyncStorage.getItem('ubuntuTokens');
-      const tokens = storedTokens ? parseInt(storedTokens, 10) : 0;
-      await AsyncStorage.setItem('ubuntuTokens', (tokens + 1).toString());
-
-      // Surface mood-aware interventions
-      const moodInterventions = interventions.moodMapping[emotionSelection.emotion] || [];
-      
-      // If first intervention is 'reset', navigate to resets
-      if (moodInterventions.length > 0 && moodInterventions[0] === 'reset') {
-        router.push('/resets' as any);
-      } else {
-        router.back();
-      }
-
-      // Reset state for next check-in
-      setSelected(null);
-      setEmotionSelection(null);
-      setShowEmotionPicker(true);
-    } catch (error) {
-      console.error('Error saving check-in:', error);
+    } else {
       router.back();
     }
   };
@@ -152,7 +123,9 @@ export default function IFSCheckIn() {
       style={[styles.partItem, selected === item && styles.partItemSelected]}
       onPress={() => setSelected(item)}
     >
-      <Text style={[styles.partText, selected === item && styles.partTextSelected]}>
+      <Text
+        style={[styles.partText, selected === item && styles.partTextSelected]}
+      >
         {item}
       </Text>
     </TouchableOpacity>
@@ -166,42 +139,51 @@ export default function IFSCheckIn() {
     );
   }
 
-  // Compute a simple self‑meter ratio.  We cap at 7 for display to
-  // encourage a weekly practice but do not limit underlying streak.
-  const meterRatio = Math.min(streak % 7, 7) / 7;
+  // Compute simple weekly self-meter
+  const meterRatio = Math.min(selfLedStreak % 7, 7) / 7;
 
+  // Step 1: Mood Selection
+  if (step === 'mood') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.card}>
+          <EmotionPicker onSelect={handleMoodSelect} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Step 2: Part Selection
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
-        {showEmotionPicker ? (
-          <EmotionPicker onSelect={handleEmotionSelected} />
-        ) : (
-          <>
-            <Text style={styles.heading}>Daily IFS Check‑In</Text>
-            <Text style={styles.subHeading}>
-              Which part of you feels most active right now?
-            </Text>
-            <FlatList
-              data={orderedParts}
-              keyExtractor={(item) => item}
-              renderItem={renderItem}
-              extraData={selected}
-              style={{ marginVertical: 16 }}
-            />
-            <View style={styles.meterContainer}>
-              <View style={[styles.meterFill, { flex: meterRatio }]} />
-              <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
-            </View>
-            <Text style={styles.streakText}>Self‑led days: {streak}</Text>
-            <TouchableOpacity
-              style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={!selected}
-            >
-              <Text style={styles.submitButtonText}>Log Check‑In</Text>
-            </TouchableOpacity>
-          </>
-        )}
+        <Text style={styles.heading}>Daily IFS Check-In</Text>
+        <Text style={styles.subHeading}>
+          Which part of you feels most active right now?
+        </Text>
+
+        <FlatList
+          data={orderedParts}
+          keyExtractor={(item) => item}
+          renderItem={renderItem}
+          extraData={selected}
+          style={{ marginVertical: 16 }}
+        />
+
+        <View style={styles.meterContainer}>
+          <View style={[styles.meterFill, { flex: meterRatio }]} />
+          <View style={[styles.meterEmpty, { flex: 1 - meterRatio }]} />
+        </View>
+
+        <Text style={styles.streakText}>Self-led days: {selfLedStreak}</Text>
+
+        <TouchableOpacity
+          style={[styles.submitButton, !selected && styles.submitButtonDisabled]}
+          onPress={handleSubmit}
+          disabled={!selected}
+        >
+          <Text style={styles.submitButtonText}>Log Check-In</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -220,6 +202,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: 24,
+    maxHeight: '90%',
   },
   heading: {
     fontSize: 22,
@@ -290,3 +273,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+

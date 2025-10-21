@@ -1,120 +1,191 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+} from 'react-native';
 import { colors, radius } from '../theme/tokens';
+import {
+  Emotion,
+  Quadrant,
+  Intensity,
+  computeQuadrant,
+} from './moodTypes';
 
 /**
- * EmotionPicker
- * 
- * A How-We-Feel inspired emotion selector that presents 10 common
- * emotions in a grid layout with intensity pills (1-5).  Returns
- * emotion, intensity, valence (positive/negative), and arousal
- * (high/low energy) to the caller for mood tracking and mood-aware
- * intervention selection.
+ * Grouped emotions by quadrant for easier selection.
+ * Each quadrant has a label, color, and list of emotions.
  */
-
-// Emotion definitions with valence and arousal metadata
-export interface EmotionData {
-  label: string;
-  valence: 'positive' | 'negative' | 'neutral';
-  arousal: 'high' | 'low';
-}
-
-export interface EmotionSelection {
-  emotion: string;
-  intensity: number;
-  valence: 'positive' | 'negative' | 'neutral';
-  arousal: 'high' | 'low';
-}
-
-const EMOTIONS: EmotionData[] = [
-  { label: 'Happy', valence: 'positive', arousal: 'high' },
-  { label: 'Calm', valence: 'positive', arousal: 'low' },
-  { label: 'Excited', valence: 'positive', arousal: 'high' },
-  { label: 'Content', valence: 'positive', arousal: 'low' },
-  { label: 'Anxious', valence: 'negative', arousal: 'high' },
-  { label: 'Sad', valence: 'negative', arousal: 'low' },
-  { label: 'Angry', valence: 'negative', arousal: 'high' },
-  { label: 'Tired', valence: 'negative', arousal: 'low' },
-  { label: 'Stressed', valence: 'negative', arousal: 'high' },
-  { label: 'Neutral', valence: 'neutral', arousal: 'low' },
+const EMOTION_GROUPS = [
+  {
+    quadrant: Quadrant.HIGH_PLEASANT,
+    label: 'Energized & Positive',
+    color: colors.accent2, // green
+    emotions: [
+      'excited',
+      'energized',
+      'joyful',
+      'happy',
+      'enthusiastic',
+      'inspired',
+    ] as Emotion[],
+  },
+  {
+    quadrant: Quadrant.HIGH_UNPLEASANT,
+    label: 'Activated & Tense',
+    color: colors.accent4, // red
+    emotions: [
+      'anxious',
+      'angry',
+      'stressed',
+      'frustrated',
+      'irritated',
+      'overwhelmed',
+    ] as Emotion[],
+  },
+  {
+    quadrant: Quadrant.LOW_UNPLEASANT,
+    label: 'Low & Heavy',
+    color: colors.accent3, // blue
+    emotions: [
+      'sad',
+      'depressed',
+      'lonely',
+      'hopeless',
+      'tired',
+      'disconnected',
+    ] as Emotion[],
+  },
+  {
+    quadrant: Quadrant.LOW_PLEASANT,
+    label: 'Calm & At Peace',
+    color: colors.accent, // yellow
+    emotions: [
+      'calm',
+      'peaceful',
+      'content',
+      'relaxed',
+      'serene',
+      'grounded',
+    ] as Emotion[],
+  },
 ];
 
 interface EmotionPickerProps {
-  onSelect: (selection: EmotionSelection) => void;
+  /**
+   * Callback invoked when the user selects an emotion and intensity.
+   * Returns the emotion, its quadrant, and intensity.
+   */
+  onSelect: (emotion: Emotion, quadrant: Quadrant, intensity: Intensity) => void;
+
+  /**
+   * Optional currently selected emotion
+   */
+  selectedEmotion?: Emotion;
+
+  /**
+   * Optional currently selected intensity
+   */
+  selectedIntensity?: Intensity;
 }
 
-export default function EmotionPicker({ onSelect }: EmotionPickerProps) {
-  const [selectedEmotion, setSelectedEmotion] = useState<EmotionData | null>(null);
-  const [intensity, setIntensity] = useState<number>(3);
+/**
+ * EmotionPicker allows users to select how they're feeling from a
+ * quadrant-based emotion wheel and rate the intensity.
+ */
+export default function EmotionPicker({
+  onSelect,
+  selectedEmotion,
+  selectedIntensity,
+}: EmotionPickerProps) {
+  const [emotion, setEmotion] = useState<Emotion | null>(selectedEmotion || null);
+  const [intensity, setIntensity] = useState<Intensity | null>(selectedIntensity || null);
 
-  const handleEmotionPress = (emotion: EmotionData) => {
-    setSelectedEmotion(emotion);
-  };
-
-  const handleIntensityPress = (level: number) => {
-    setIntensity(level);
-  };
-
-  const handleConfirm = () => {
-    if (selectedEmotion) {
-      onSelect({
-        emotion: selectedEmotion.label,
-        intensity,
-        valence: selectedEmotion.valence,
-        arousal: selectedEmotion.arousal,
-      });
+  const handleEmotionPress = (newEmotion: Emotion) => {
+    setEmotion(newEmotion);
+    // If intensity is already selected, call onSelect immediately
+    if (intensity !== null) {
+      const quadrant = computeQuadrant(newEmotion);
+      onSelect(newEmotion, quadrant, intensity);
     }
   };
 
+  const handleIntensityPress = (newIntensity: Intensity) => {
+    setIntensity(newIntensity);
+    // If emotion is already selected, call onSelect immediately
+    if (emotion !== null) {
+      const quadrant = computeQuadrant(emotion);
+      onSelect(emotion, quadrant, newIntensity);
+    }
+  };
+
+  const formatEmotion = (e: string) => e.charAt(0).toUpperCase() + e.slice(1);
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Text style={styles.heading}>How are you feeling?</Text>
-      <Text style={styles.subHeading}>Choose the emotion that fits best</Text>
+      <Text style={styles.subHeading}>
+        Choose the emotion that best describes your state
+      </Text>
 
-      {/* Emotion Grid */}
-      <View style={styles.emotionGrid}>
-        {EMOTIONS.map((emotion) => {
-          const isSelected = selectedEmotion?.label === emotion.label;
-          return (
-            <TouchableOpacity
-              key={emotion.label}
-              style={[
-                styles.emotionButton,
-                isSelected && styles.emotionButtonSelected,
-              ]}
-              onPress={() => handleEmotionPress(emotion)}
-            >
-              <Text
+      {EMOTION_GROUPS.map((group) => (
+        <View key={group.quadrant} style={styles.quadrantGroup}>
+          <View
+            style={[
+              styles.quadrantHeader,
+              { backgroundColor: group.color + '20' },
+            ]}
+          >
+            <Text style={[styles.quadrantLabel, { color: group.color }]}>
+              {group.label}
+            </Text>
+          </View>
+          <View style={styles.emotionsGrid}>
+            {group.emotions.map((e) => (
+              <TouchableOpacity
+                key={e}
                 style={[
-                  styles.emotionText,
-                  isSelected && styles.emotionTextSelected,
+                  styles.emotionButton,
+                  emotion === e && {
+                    backgroundColor: group.color,
+                    borderColor: group.color,
+                  },
                 ]}
+                onPress={() => handleEmotionPress(e)}
               >
-                {emotion.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+                <Text
+                  style={[
+                    styles.emotionText,
+                    emotion === e && styles.emotionTextSelected,
+                  ]}
+                >
+                  {formatEmotion(e)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      ))}
 
-      {/* Intensity Pills */}
-      {selectedEmotion && (
-        <View style={styles.intensityContainer}>
-          <Text style={styles.intensityLabel}>How intense?</Text>
-          <View style={styles.intensityPills}>
-            {[1, 2, 3, 4, 5].map((level) => (
+      {emotion && (
+        <View style={styles.intensitySection}>
+          <Text style={styles.intensityHeading}>How intense is this feeling?</Text>
+          <View style={styles.intensityButtons}>
+            {([1, 2, 3, 4, 5] as Intensity[]).map((level) => (
               <TouchableOpacity
                 key={level}
                 style={[
-                  styles.intensityPill,
-                  intensity === level && styles.intensityPillSelected,
+                  styles.intensityButton,
+                  intensity === level && styles.intensityButtonSelected,
                 ]}
                 onPress={() => handleIntensityPress(level)}
               >
                 <Text
                   style={[
-                    styles.intensityPillText,
-                    intensity === level && styles.intensityPillTextSelected,
+                    styles.intensityText,
+                    intensity === level && styles.intensityTextSelected,
                   ]}
                 >
                   {level}
@@ -122,27 +193,19 @@ export default function EmotionPicker({ onSelect }: EmotionPickerProps) {
               </TouchableOpacity>
             ))}
           </View>
+          <View style={styles.intensityLabels}>
+            <Text style={styles.intensityLabelText}>Mild</Text>
+            <Text style={styles.intensityLabelText}>Strong</Text>
+          </View>
         </View>
       )}
-
-      {/* Confirm Button */}
-      <TouchableOpacity
-        style={[
-          styles.confirmButton,
-          !selectedEmotion && styles.confirmButtonDisabled,
-        ]}
-        onPress={handleConfirm}
-        disabled={!selectedEmotion}
-      >
-        <Text style={styles.confirmButtonText}>Continue</Text>
-      </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    width: '100%',
+    flex: 1,
   },
   heading: {
     fontSize: 22,
@@ -152,58 +215,65 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subHeading: {
-    fontSize: 16,
-    color: colors.text,
-    marginBottom: 20,
+    fontSize: 14,
+    color: colors.sub,
+    marginBottom: 24,
     textAlign: 'center',
   },
-  emotionGrid: {
+  quadrantGroup: {
+    marginBottom: 20,
+  },
+  quadrantHeader: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    marginBottom: 12,
+  },
+  quadrantLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emotionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 24,
+    gap: 8,
   },
   emotionButton: {
-    width: '48%',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.card,
     backgroundColor: colors.card,
-    marginBottom: 12,
-    alignItems: 'center',
-  },
-  emotionButtonSelected: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
+    marginBottom: 8,
   },
   emotionText: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.text,
-    fontWeight: '500',
   },
   emotionTextSelected: {
     color: colors.bg,
     fontWeight: '600',
   },
-  intensityContainer: {
-    marginBottom: 24,
+  intensitySection: {
+    marginTop: 24,
+    marginBottom: 16,
   },
-  intensityLabel: {
-    fontSize: 16,
+  intensityHeading: {
+    fontSize: 18,
+    fontWeight: '600',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 16,
     textAlign: 'center',
   },
-  intensityPills: {
+  intensityButtons: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  intensityPill: {
-    width: 44,
-    height: 44,
+  intensityButton: {
+    width: 56,
+    height: 56,
     borderRadius: radius.pill,
     borderWidth: 2,
     borderColor: colors.card,
@@ -211,31 +281,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  intensityPillSelected: {
+  intensityButtonSelected: {
     backgroundColor: colors.accent2,
     borderColor: colors.accent2,
   },
-  intensityPillText: {
-    fontSize: 16,
-    color: colors.text,
+  intensityText: {
+    fontSize: 18,
     fontWeight: '600',
+    color: colors.sub,
   },
-  intensityPillTextSelected: {
+  intensityTextSelected: {
     color: colors.bg,
   },
-  confirmButton: {
-    backgroundColor: colors.accent2,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: 'center',
+  intensityLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
   },
-  confirmButtonDisabled: {
-    backgroundColor: colors.card,
-    opacity: 0.5,
-  },
-  confirmButtonText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
+  intensityLabelText: {
+    fontSize: 12,
+    color: colors.sub,
   },
 });
