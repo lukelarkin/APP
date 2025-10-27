@@ -66,6 +66,7 @@ export type RootStackParamList = {
   Interventions: undefined;
   InterventionDetail: { intervention: Intervention };
   CheckIn: undefined;
+  IFSCheckIn: undefined;
   Community: undefined;
   QuickResets: undefined;
   QuickResetDetail: { reset: QuickReset };

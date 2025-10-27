@@ -9,6 +9,7 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { QuizScreen } from '../screens/QuizScreen';
 import { QuizResultScreen } from '../screens/QuizResultScreen';
 import { CheckInScreen } from '../screens/CheckInScreen';
+import IFSCheckInScreen from '../screens/IFSCheckInScreen';
 import { InterventionsScreen } from '../screens/InterventionsScreen';
 import { InterventionDetailScreen } from '../screens/InterventionDetailScreen';
 import { QuickResetsScreen } from '../screens/QuickResetsScreen';
@@ -59,6 +60,11 @@ export const AppNavigator: React.FC = () => {
           name="CheckIn"
           component={CheckInScreen}
           options={{ title: 'Daily Check-In' }}
+        />
+        <Stack.Screen
+          name="IFSCheckIn"
+          component={IFSCheckInScreen}
+          options={{ title: 'IFS Check-In' }}
         />
         <Stack.Screen
           name="Interventions"

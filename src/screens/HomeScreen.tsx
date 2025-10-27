@@ -95,6 +95,19 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </Card>
 
+        <Card onPress={() => navigation.navigate('IFSCheckIn')}>
+          <View style={styles.actionCard}>
+            <Text style={styles.actionEmoji}>🧘</Text>
+            <View style={styles.actionContent}>
+              <Text style={styles.actionTitle}>IFS Check-In</Text>
+              <Text style={styles.actionDescription}>
+                Deep reflection and self-connection
+              </Text>
+            </View>
+            <Text style={styles.arrow}>›</Text>
+          </View>
+        </Card>
+
         {quizCompleted && archetype && (
           <Card onPress={() => navigation.navigate('Interventions')}>
             <View style={styles.actionCard}>
